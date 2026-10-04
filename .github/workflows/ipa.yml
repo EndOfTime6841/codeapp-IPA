@@ -1,0 +1,56 @@
+name: Build IPA For Sideloading
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 3 * * 1"   # weekly rebuild (Mondays 03:00 UTC)
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Download frameworks
+        run: |
+          chmod +x downloadFrameworks.sh
+          ./downloadFrameworks.sh
+
+      - name: Build (unsigned)
+        run: |
+          xcodebuild -project Code.xcodeproj \
+            -scheme Code \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -n 1)
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry CodeApp.ipa Payload
+
+      - name: Set release info
+        id: info
+        run: |
+          echo "tag=build-$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.info.outputs.tag }}
+          name: Build ${{ steps.info.outputs.tag }}
+          files: CodeApp.ipa
