@@ -1,4 +1,11 @@
 # Code App
+<style>
+  .large {
+    font-size:15px;
+    color:red;
+  }
+</style>
+<p1 class=“large”>Disclamer: this is a free version</p1>
 
 Bringing desktop-like editing experience to iPad, available on [App Store](https://apps.apple.com/us/app/code-app/id1512938504) and [TestFlight](https://testflight.apple.com/join/EgZ8sE2P).
 
