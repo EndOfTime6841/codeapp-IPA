@@ -1,10 +1,10 @@
-name: Build IPA For Sideloading
+name: Build IPA
 
 on:
   push:
     branches: [main]
   schedule:
-    - cron: "0 3 * * 1"   # weekly rebuild (Mondays 03:00 UTC)
+    - cron: "0 3 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -23,10 +23,21 @@ jobs:
           chmod +x downloadFrameworks.sh
           ./downloadFrameworks.sh
 
+      - name: List schemes
+        run: xcodebuild -project Code.xcodeproj -list
+
       - name: Build (unsigned)
         run: |
+          SCHEME=$(xcodebuild -project Code.xcodeproj -list -json | python3 -c "
+          import json,sys
+          d=json.load(sys.stdin)['project']
+          s=d.get('schemes') or d.get('targets') or []
+          good=[x for x in s if 'Test' not in x]
+          print(good[0] if good else '')")
+          echo "Using scheme: '$SCHEME'"
+          test -n "$SCHEME"
           xcodebuild -project Code.xcodeproj \
-            -scheme Code \
+            -scheme "$SCHEME" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
@@ -38,15 +49,15 @@ jobs:
 
       - name: Package IPA
         run: |
-          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -n 1)
+          APP=$(find build/Build/Products -maxdepth 2 -name "*.app" | head -n 1)
+          echo "Found app: $APP"
           mkdir -p Payload
           cp -R "$APP" Payload/
           zip -qry CodeApp.ipa Payload
 
       - name: Set release info
         id: info
-        run: |
-          echo "tag=build-$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+        run: echo "tag=build-$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
 
       - name: Publish release
         uses: softprops/action-gh-release@v2
