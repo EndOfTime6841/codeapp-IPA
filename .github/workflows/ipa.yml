@@ -20,14 +20,23 @@ jobs:
         run: |
           chmod +x downloadFrameworks.sh
           ./downloadFrameworks.sh
-      - name: List schemes
-        run: xcodebuild -list -project Code.xcodeproj
+            - name: Find scheme
+        id: scheme
+        run: |
+          xcodebuild -list -project Code.xcodeproj
+          SCHEMES=$(xcodebuild -list -json -project Code.xcodeproj | jq -r '.project.schemes[]')
+          echo "Available schemes:"; echo "$SCHEMES"
+          # prefer a scheme that isn't the simulator/test one
+          PICK=$(echo "$SCHEMES" | grep -viE 'UI|Test' | head -n1)
+          [ -z "$PICK" ] && PICK=$(echo "$SCHEMES" | head -n1)
+          echo "Using: $PICK"
+          echo "name=$PICK" >> "$GITHUB_OUTPUT"
 
       - name: Build (unsigned)
         run: |
           xcodebuild archive \
             -project Code.xcodeproj \
-            -scheme Code \
+            -scheme "${{ steps.scheme.outputs.name }}" \
             -configuration Release \
             -destination 'generic/platform=iOS' \
             -archivePath build/Code.xcarchive \
@@ -35,6 +44,7 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
             AD_HOC_CODE_SIGNING_ALLOWED=YES
+
 
       - name: Package IPA named by bundle ID
         id: pkg
