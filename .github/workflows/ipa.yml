@@ -16,17 +16,37 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Select newest Xcode
+        run: |
+          XC=$(ls -d /Applications/Xcode_*.app | sort -V | tail -n1)
+          echo "Using $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Ensure iOS platform
+        run: |
+          xcodebuild -showsdks
+          xcodebuild -downloadPlatform iOS || true
+
+      - name: Cache frameworks
+        id: fw
+        uses: actions/cache@v4
+        with:
+          path: Dependencies
+          key: frameworks-${{ hashFiles('downloadFrameworks.sh') }}
+
       - name: Download frameworks
+        if: steps.fw.outputs.cache-hit != 'true'
         run: |
           chmod +x downloadFrameworks.sh
           ./downloadFrameworks.sh
+
       - name: Find scheme
         id: scheme
         run: |
           xcodebuild -list -project Code.xcodeproj
           SCHEMES=$(xcodebuild -list -json -project Code.xcodeproj | jq -r '.project.schemes[]')
           echo "Available schemes:"; echo "$SCHEMES"
-          # prefer a scheme that isn't the simulator/test one
           PICK=$(echo "$SCHEMES" | grep -viE 'UI|Test' | head -n1)
           [ -z "$PICK" ] && PICK=$(echo "$SCHEMES" | head -n1)
           echo "Using: $PICK"
@@ -34,6 +54,7 @@ jobs:
 
       - name: Build (unsigned)
         run: |
+          set -o pipefail
           xcodebuild archive \
             -project Code.xcodeproj \
             -scheme "${{ steps.scheme.outputs.name }}" \
@@ -43,8 +64,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES
+            AD_HOC_CODE_SIGNING_ALLOWED=YES 2>&1 | tee build.log | grep -E "error:|actool" || true
+          test -d build/Code.xcarchive
 
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
 
       - name: Package IPA named by bundle ID
         id: pkg
@@ -70,3 +98,40 @@ jobs:
           body: "Unsigned IPA built from ${{ github.sha }}"
           files: ${{ steps.pkg.outputs.bundle_id }}.ipa
           make_latest: true
+
+      - name: Generate SideStore source
+        run: |
+          APP=$(ls -d build/Code.xcarchive/Products/Applications/*.app | head -n1)
+          BID="${{ steps.pkg.outputs.bundle_id }}"
+          NAME=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" "$APP/Info.plist" 2>/dev/null \
+                 || /usr/libexec/PlistBuddy -c "Print :CFBundleName" "$APP/Info.plist")
+          VER=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist")
+          SIZE=$(stat -f%z "$BID.ipa")
+          DATE=$(date -u +%Y-%m-%d)
+          URL="https://github.com/${{ github.repository }}/releases/download/latest/$BID.ipa"
+
+          jq -n --arg name "$NAME" --arg bid "$BID" --arg ver "$VER" \
+                --arg date "$DATE" --arg url "$URL" --argjson size "$SIZE" '
+          {
+            name: "\($name) Source",
+            identifier: "\($bid).source",
+            apps: [{
+              name: $name,
+              bundleIdentifier: $bid,
+              developerName: "thebaselab (sideload build)",
+              version: $ver,
+              versionDate: $date,
+              downloadURL: $url,
+              localizedDescription: "Code editor for iPad, unsigned sideload build.",
+              size: $size
+            }],
+            news: []
+          }' > source.json
+          cat source.json
+
+      - name: Commit source.json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git add source.json
+          git diff --cached --quiet || (git commit -m "Update source.json" && git push)
