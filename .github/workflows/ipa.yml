@@ -20,6 +20,8 @@ jobs:
         run: |
           chmod +x downloadFrameworks.sh
           ./downloadFrameworks.sh
+      - name: List schemes
+        run: xcodebuild -list -project Code.xcodeproj
 
       - name: Build (unsigned)
         run: |
