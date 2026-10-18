@@ -1,11 +1,9 @@
-name: Build IPA
+name: Build unsigned IPA
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
-  schedule:
-    - cron: "0 3 * * 1"
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -23,45 +21,40 @@ jobs:
           chmod +x downloadFrameworks.sh
           ./downloadFrameworks.sh
 
-      - name: List schemes
-        run: xcodebuild -project Code.xcodeproj -list
-
       - name: Build (unsigned)
         run: |
-          SCHEME=$(xcodebuild -project Code.xcodeproj -list -json | python3 -c "
-          import json,sys
-          d=json.load(sys.stdin)['project']
-          s=d.get('schemes') or d.get('targets') or []
-          good=[x for x in s if 'Test' not in x]
-          print(good[0] if good else '')")
-          echo "Using scheme: '$SCHEME'"
-          test -n "$SCHEME"
-          xcodebuild -project Code.xcodeproj \
-            -scheme "$SCHEME" \
+          xcodebuild archive \
+            -project Code.xcodeproj \
+            -scheme Code \
             -configuration Release \
-            -sdk iphoneos \
             -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
+            -archivePath build/Code.xcarchive \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            build
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
-      - name: Package IPA
+      - name: Package IPA named by bundle ID
+        id: pkg
         run: |
-          APP=$(find build/Build/Products -maxdepth 2 -name "*.app" | head -n 1)
-          echo "Found app: $APP"
+          APP=$(ls -d build/Code.xcarchive/Products/Applications/*.app | head -n1)
+          BID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist")
+          echo "bundle_id=$BID" >> "$GITHUB_OUTPUT"
           mkdir -p Payload
           cp -R "$APP" Payload/
-          zip -qry CodeApp.ipa Payload
+          zip -qr "$BID.ipa" Payload
+          ls -lh "$BID.ipa"
 
-      - name: Set release info
-        id: info
-        run: echo "tag=build-$(date +%Y%m%d-%H%M)" >> $GITHUB_OUTPUT
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.pkg.outputs.bundle_id }}
+          path: ${{ steps.pkg.outputs.bundle_id }}.ipa
 
-      - name: Publish release
+      - name: Publish to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.info.outputs.tag }}
-          name: Build ${{ steps.info.outputs.tag }}
-          files: CodeApp.ipa
+          tag_name: latest
+          name: Latest build
+          body: "Unsigned IPA built from ${{ github.sha }}"
+          files: ${{ steps.pkg.outputs.bundle_id }}.ipa
+          make_latest: true
