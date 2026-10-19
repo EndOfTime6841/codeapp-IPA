@@ -32,14 +32,18 @@ jobs:
         id: fw
         uses: actions/cache@v4
         with:
-          path: Dependencies
-          key: frameworks-${{ hashFiles('downloadFrameworks.sh') }}
+          path: Resources
+          key: frameworks-v2-${{ hashFiles('downloadFrameworks.sh') }}
 
       - name: Download frameworks
         if: steps.fw.outputs.cache-hit != 'true'
         run: |
           chmod +x downloadFrameworks.sh
           ./downloadFrameworks.sh
+
+      - name: Verify frameworks
+        run: |
+          test -d Resources/Term/ios_system.xcframework || { echo "Frameworks missing"; ls Resources; exit 1; }
 
       - name: Find scheme
         id: scheme
@@ -51,9 +55,10 @@ jobs:
           [ -z "$PICK" ] && PICK=$(echo "$SCHEMES" | head -n1)
           echo "Using: $PICK"
           echo "name=$PICK" >> "$GITHUB_OUTPUT"
+
       - name: Strip entitlements free accounts can't use
         run: |
-          find . -name "*.entitlements" -not -path "./Dependencies/*" -print0 |
+          find . -name "*.entitlements" -not -path "./Resources/*" -not -path "./Dependencies/*" -print0 |
           while IFS= read -r -d '' f; do
             echo "Cleaning: $f"
             for key in \
