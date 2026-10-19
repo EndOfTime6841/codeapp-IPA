@@ -7,10 +7,10 @@
       "bundleIdentifier": "thebaselab.VS-Code",
       "developerName": "thebaselab (sideload build)",
       "version": "1.12.3",
-      "versionDate": "2026-10-18",
+      "versionDate": "2026-10-19",
       "downloadURL": "https://github.com/EndOfTime6841/codeapp-IPA/releases/download/latest/thebaselab.VS-Code.ipa",
       "localizedDescription": "Code editor for iPad, unsigned sideload build.",
-      "size": 316213098
+      "size": 316213105
     }
   ],
   "news": []
